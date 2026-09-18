@@ -1,0 +1,33 @@
+server:
+  port: 8171
+  error:
+    # 把后端中文错误原因（如「机动岗已被占用」「押金冻结失败」）放进错误响应的 message 字段，
+    # 前端 resolveError 读取 data.message 展示给销售/值班室
+    include-message: always
+
+spring:
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3387/salon_recommend?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: admin
+    password: password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6460
+      timeout: 6000ms
+
+logging:
+  level:
+    com.example.salon: DEBUG
+    org.hibernate.SQL: DEBUG
