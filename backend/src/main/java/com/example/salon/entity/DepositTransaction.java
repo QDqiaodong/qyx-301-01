@@ -81,6 +81,18 @@ public class DepositTransaction {
     @Column(name = "activity_date")
     private LocalDateTime activityDate;
 
+    /**
+     * 该笔流水对应的当前有效结算发票号。不落库：读流水时按发票台账里
+     * 「冻结流水/结算流水 → 有效票」的关联带出来——红字作废后旧票号自动消失，
+     * 重开后自动换成新票号，流水页与发票台账、需求详情看到的始终是同一张有效票。
+     */
+    @Transient
+    private String invoiceNo;
+
+    /** 当前有效票票面金额（不落库，随 invoiceNo 一起带出） */
+    @Transient
+    private BigDecimal invoiceAmount;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

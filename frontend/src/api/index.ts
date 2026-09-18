@@ -51,6 +51,11 @@ export interface ActivityDemand {
   /** 是否已开场：0-未开场（已锁定），1-已开场（两岗签到齐全后开场） */
   opened?: number
   openedAt?: string | null
+  /** 当前有效结算发票号（红字作废后清空，重开后换新票号） */
+  invoiceNo?: string | null
+  /** 当前有效票票面金额（= 已结清的冻结或实退金额） */
+  invoiceAmount?: number | null
+  invoiceIssuedAt?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -139,6 +144,35 @@ export interface DepositTransaction {
   reason?: string | null
   freezeTransactionId?: number | null
   activityDate?: string | null
+  /** 该笔流水对应的当前有效结算发票号（红字作废后不再带出，重开后自动换新票号） */
+  invoiceNo?: string | null
+  /** 当前有效票票面金额 */
+  invoiceAmount?: number | null
+  createdAt?: string
+}
+
+/**
+ * 结算发票：活动已开场、或押金已全额退完之后，财务为需求开的结算票。
+ * 票面金额 = 已结清的冻结或实退金额，客户名与押金账户持有人同一人。
+ */
+export interface Invoice {
+  id?: number
+  invoiceNo: string
+  demandId: number
+  demandName?: string
+  accountId: number
+  customerName: string
+  customerPhone?: string | null
+  amount: number
+  /** OPENED-活动已开场 / REFUNDED-押金已全额退完 */
+  settleBasis: 'OPENED' | 'REFUNDED'
+  freezeTransactionId?: number | null
+  settleTransactionId?: number | null
+  /** VALID-有效 / VOID-红字作废（旧票号不能再当有效票去报） */
+  status: 'VALID' | 'VOID'
+  voidReason?: string | null
+  voidedAt?: string | null
+  issuedBy?: string | null
   createdAt?: string
 }
 
@@ -244,6 +278,24 @@ export const financeApi = {
   listTransactions: () => api.get<DepositTransaction[]>('/finance/deposit-transactions'),
   recharge: (accountId: number, amount: number, note?: string) =>
     api.post<CustomerAccount>(`/finance/accounts/${accountId}/recharge`, { amount, note })
+}
+
+/**
+ * 结算发票：只有财务角色能开票/作废（后端强制校验 operatorRole=FINANCE）。
+ * 还在冻结中、没开场也没退完的需求开票会被拒，并写明还差哪一笔没结；
+ * 已有有效票的需求必须先红字作废旧票（留作废原因）才能重开。
+ */
+export const invoiceApi = {
+  /** 发票台账：有效票与红字作废票逐笔可见 */
+  list: () => api.get<Invoice[]>('/finance/invoices'),
+  /** 该需求的当前有效票（无有效票时 404） */
+  getCurrentOfDemand: (demandId: number) => api.get<Invoice>(`/finance/invoices/demand/${demandId}`),
+  /** 开票：财务操作；票面金额与客户名由后端按押金结清流水核定 */
+  issue: (demandId: number, operatorName?: string) =>
+    api.post<Invoice>('/finance/invoices', { demandId, operatorRole: 'FINANCE', operatorName }),
+  /** 红字作废：必须留作废原因；作废后旧票号不再有效 */
+  void: (id: number, reason: string) =>
+    api.post<Invoice>(`/finance/invoices/${id}/void`, { operatorRole: 'FINANCE', reason })
 }
 
 /** 开场当天值守：两岗签到是开场条件（安保规定） */

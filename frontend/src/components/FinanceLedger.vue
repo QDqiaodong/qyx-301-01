@@ -1,19 +1,26 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  financeApi, resolveError,
-  type CustomerAccount, type DepositTransaction
+  financeApi, invoiceApi, demandApi, resolveError,
+  type CustomerAccount, type DepositTransaction, type Invoice, type ActivityDemand
 } from '../api'
 
-const activePane = ref<'accounts' | 'ledger'>('accounts')
+const activePane = ref<'accounts' | 'ledger' | 'invoices'>('accounts')
 const accounts = ref<CustomerAccount[]>([])
 const transactions = ref<DepositTransaction[]>([])
+const invoices = ref<Invoice[]>([])
 const loading = ref(false)
 
 const rechargeDialogVisible = ref(false)
 const rechargeSubmitting = ref(false)
 const rechargeForm = reactive({ accountId: 0 as number, customerName: '', amount: 0, note: '' })
+
+// 开票对话框：财务选需求开票；未结清/已有有效票会被后端拒并写明原因
+const issueDialogVisible = ref(false)
+const issueSubmitting = ref(false)
+const issueForm = reactive({ demandId: null as number | null, operatorName: '' })
+const issueDemands = ref<ActivityDemand[]>([])
 
 const loadAccounts = async () => {
   loading.value = true
@@ -39,9 +46,22 @@ const loadTransactions = async () => {
   }
 }
 
+const loadInvoices = async () => {
+  loading.value = true
+  try {
+    const res = await invoiceApi.list()
+    invoices.value = res.data
+  } catch (error) {
+    ElMessage.error(resolveError(error, '加载发票台账失败'))
+  } finally {
+    loading.value = false
+  }
+}
+
 const handlePaneChange = (pane: string) => {
   if (pane === 'accounts') loadAccounts()
-  else loadTransactions()
+  else if (pane === 'ledger') loadTransactions()
+  else loadInvoices()
 }
 
 const openRecharge = (account: CustomerAccount) => {
@@ -70,6 +90,66 @@ const submitRecharge = async () => {
   }
 }
 
+// ==================== 结算发票 ====================
+
+const openIssueDialog = async () => {
+  issueForm.demandId = null
+  issueForm.operatorName = ''
+  issueDialogVisible.value = true
+  try {
+    const res = await demandApi.getAll()
+    issueDemands.value = res.data
+  } catch (error) {
+    ElMessage.error(resolveError(error, '加载需求列表失败'))
+  }
+}
+
+const demandLabel = (d: ActivityDemand) =>
+  `#${d.id} ${d.demandName}（${d.customerName}）`
+
+const submitIssue = async () => {
+  if (!issueForm.demandId) {
+    ElMessage.warning('请选择要开票的需求')
+    return
+  }
+  issueSubmitting.value = true
+  try {
+    const res = await invoiceApi.issue(issueForm.demandId, issueForm.operatorName || undefined)
+    ElMessage.success(`已开结算发票「${res.data.invoiceNo}」，票面 ¥${res.data.amount}`)
+    issueDialogVisible.value = false
+    await loadInvoices()
+  } catch (error) {
+    // 未结清（还差哪笔没结）/已有有效票/非财务角色：后端会写明原因
+    ElMessage.error(resolveError(error, '开票失败'))
+  } finally {
+    issueSubmitting.value = false
+  }
+}
+
+const voidInvoice = async (invoice: Invoice) => {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `红字作废发票「${invoice.invoiceNo}」（¥${invoice.amount}）？作废后旧票号不能再当有效票去报，可重新开票。请留下作废原因：`,
+      '红字作废',
+      {
+        confirmButtonText: '确认作废',
+        cancelButtonText: '取消',
+        inputPlaceholder: '作废原因（必填，留痕）',
+        inputValidator: (v: string) => (v && v.trim().length > 0) || '作废原因不能为空'
+      }
+    )
+    await invoiceApi.void(invoice.id!, value.trim())
+    ElMessage.success(`发票「${invoice.invoiceNo}」已红字作废`)
+    await loadInvoices()
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(resolveError(error, '作废失败'))
+  }
+}
+
+const basisText = (basis: string) =>
+  basis === 'OPENED' ? '活动已开场' : basis === 'REFUNDED' ? '押金已全额退完' : basis
+
 const txTypeMeta = (tx: DepositTransaction) => {
   switch (tx.type) {
     case 'RECHARGE': return { text: '充值入账', type: 'success' as const }
@@ -96,7 +176,7 @@ onMounted(loadAccounts)
       :closable="false"
       show-icon
       class="rule-alert"
-      title="客户口头看中场地后先冻结押金，冻结成功才进入待办活动；取消活动按距活动日远近固定退押：≥3天全退、三天内半退、当天不退。退回比例由系统按日期自动核算，任何人（含销售）都不能手工修改。"
+      title="客户口头看中场地后先冻结押金，冻结成功才进入待办活动；取消活动按距活动日远近固定退押：≥3天全退、三天内半退、当天不退。退回比例由系统按日期自动核算，任何人（含销售）都不能手工修改。结算发票只有财务能开：活动已开场或押金全额退完才开得出，票面金额=已结清的冻结/实退金额；还在冻结中的需求开不了票。"
     />
 
     <el-tabs v-model="activePane" @tab-change="handlePaneChange">
@@ -174,7 +254,65 @@ onMounted(loadAccounts)
               </span>
             </template>
           </el-table-column>
+          <el-table-column label="结算发票" width="160">
+            <template #default="scope">
+              <el-tag v-if="scope.row.invoiceNo" type="success" size="small">
+                {{ scope.row.invoiceNo }}（¥{{ scope.row.invoiceAmount }}）
+              </el-tag>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="reason" label="档位/原因" min-width="280" show-overflow-tooltip />
+        </el-table>
+      </el-tab-pane>
+
+      <el-tab-pane label="结算发票台账" name="invoices">
+        <div class="invoice-toolbar">
+          <el-button type="primary" @click="openIssueDialog">开具结算发票</el-button>
+          <span class="hint">
+            只有财务能开票；活动已开场或押金全额退完才开得出，还在冻结中的需求开票会被拒并写明哪笔没结。
+            重开前须先把旧票红字作废并留作废原因。
+          </span>
+        </div>
+        <el-table v-loading="loading" :data="invoices" border size="small">
+          <el-table-column prop="invoiceNo" label="发票号" width="170" />
+          <el-table-column label="状态" width="100">
+            <template #default="scope">
+              <el-tag :type="scope.row.status === 'VALID' ? 'success' : 'danger'" size="small">
+                {{ scope.row.status === 'VALID' ? '有效' : '红字作废' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="demandName" label="需求/活动" min-width="140">
+            <template #default="scope">#{{ scope.row.demandId }} {{ scope.row.demandName || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="customerName" label="票面客户（=押金账户）" min-width="130" />
+          <el-table-column label="票面金额" width="110">
+            <template #default="scope">
+              <span class="money">¥{{ scope.row.amount }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="结清依据" width="130">
+            <template #default="scope">{{ basisText(scope.row.settleBasis) }}</template>
+          </el-table-column>
+          <el-table-column prop="issuedBy" label="开票人" width="100">
+            <template #default="scope">{{ scope.row.issuedBy || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="createdAt" label="开票时间" width="170" />
+          <el-table-column label="作废原因" min-width="180" show-overflow-tooltip>
+            <template #default="scope">{{ scope.row.voidReason || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="110" fixed="right">
+            <template #default="scope">
+              <el-button
+                v-if="scope.row.status === 'VALID'"
+                type="danger"
+                size="small"
+                @click="voidInvoice(scope.row)"
+              >红字作废</el-button>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
         </el-table>
       </el-tab-pane>
     </el-tabs>
@@ -195,6 +333,40 @@ onMounted(loadAccounts)
       <template #footer>
         <el-button @click="rechargeDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="rechargeSubmitting" @click="submitRecharge">确认充值</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="issueDialogVisible" title="开具结算发票（财务）" width="480px">
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        class="issue-alert"
+        title="活动已开场、或押金已全额退完的需求才能开票；票面金额=已结清的冻结/实退金额，票面客户自动取押金账户持有人。还在冻结中的需求开票会失败并写明哪笔没结。"
+      />
+      <el-form label-width="100px">
+        <el-form-item label="开票需求" required>
+          <el-select
+            v-model="issueForm.demandId"
+            filterable
+            placeholder="选择需求"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="d in issueDemands"
+              :key="d.id"
+              :value="d.id!"
+              :label="demandLabel(d)"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="开票人">
+          <el-input v-model="issueForm.operatorName" placeholder="财务操作人姓名" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="issueDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="issueSubmitting" @click="submitIssue">确认开票</el-button>
       </template>
     </el-dialog>
   </div>
@@ -246,5 +418,15 @@ onMounted(loadAccounts)
   margin-left: 10px;
   font-size: 12px;
   color: #909399;
+}
+
+.invoice-toolbar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.issue-alert {
+  margin-bottom: 16px;
 }
 </style>

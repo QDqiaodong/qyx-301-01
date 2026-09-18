@@ -101,6 +101,21 @@ public class ActivityDemand {
     @Column(name = "opened_at")
     private LocalDateTime openedAt;
 
+    /**
+     * 当前有效结算发票号（财务开票后写入，与发票台账、押金流水看到的是同一张）。
+     * 红字作废后清空——旧票号不能再当有效票去报；重开后换成新票号。
+     */
+    @Column(name = "invoice_no", length = 40)
+    private String invoiceNo;
+
+    /** 当前有效票票面金额（= 已结清的冻结或实退金额） */
+    @Column(name = "invoice_amount", precision = 12, scale = 2)
+    private BigDecimal invoiceAmount;
+
+    /** 当前有效票的开票时间 */
+    @Column(name = "invoice_issued_at")
+    private LocalDateTime invoiceIssuedAt;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

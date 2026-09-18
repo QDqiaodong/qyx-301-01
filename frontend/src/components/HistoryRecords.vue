@@ -190,6 +190,13 @@ onMounted(loadDemands)
               <div class="detail-item">
                 <span>必备设施：</span>{{ demand.requiredFacilities || '-' }}
               </div>
+              <div class="detail-item">
+                <span>结算发票：</span>
+                <el-tag v-if="demand.invoiceNo" type="success" size="small">
+                  {{ demand.invoiceNo }}（¥{{ demand.invoiceAmount }}）
+                </el-tag>
+                <template v-else>未开票</template>
+              </div>
               <div class="detail-item full">
                 <span>特殊要求：</span>{{ demand.specialRequirements || '-' }}
               </div>
@@ -265,6 +272,14 @@ onMounted(loadDemands)
               </el-table-column>
               <el-table-column label="没收" width="90">
                 <template #default="scope">¥{{ scope.row.forfeitAmount }}</template>
+              </el-table-column>
+              <el-table-column label="结算发票" width="160">
+                <template #default="scope">
+                  <el-tag v-if="scope.row.invoiceNo" type="success" size="small">
+                    {{ scope.row.invoiceNo }}
+                  </el-tag>
+                  <span v-else>-</span>
+                </template>
               </el-table-column>
               <el-table-column prop="reason" label="说明" min-width="240" show-overflow-tooltip />
               <el-table-column prop="createdAt" label="时间" width="170" />

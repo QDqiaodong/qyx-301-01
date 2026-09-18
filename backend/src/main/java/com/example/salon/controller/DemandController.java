@@ -11,6 +11,7 @@ import com.example.salon.repository.LockRecordRepository;
 import com.example.salon.repository.RecommendResultRepository;
 import com.example.salon.repository.SiteVisitRepository;
 import com.example.salon.service.DepositService;
+import com.example.salon.service.InvoiceService;
 import com.example.salon.service.LockService;
 import com.example.salon.service.RecommendService;
 import com.example.salon.service.SiteVisitService;
@@ -37,6 +38,7 @@ public class DemandController {
     private final SiteVisitService siteVisitService;
     private final LockService lockService;
     private final DepositService depositService;
+    private final InvoiceService invoiceService;
 
     @GetMapping
     public ResponseEntity<List<ActivityDemand>> getAllDemands() {
@@ -59,6 +61,10 @@ public class DemandController {
         demand.setDepositAmount(null);
         demand.setDepositFreezeId(null);
         demand.setDepositRefundSummary(null);
+        // 发票只能由财务开票写入，新建需求一律为空
+        demand.setInvoiceNo(null);
+        demand.setInvoiceAmount(null);
+        demand.setInvoiceIssuedAt(null);
         return ResponseEntity.ok(demandRepository.save(demand));
     }
 
@@ -185,9 +191,11 @@ public class DemandController {
         return ResponseEntity.ok(lockService.cancelActivity(id));
     }
 
-    /** 该需求的押金流水（冻结、退回、没收），财务逐笔可核。 */
+    /** 该需求的押金流水（冻结、退回、没收），财务逐笔可核；已结清的流水带当前有效票号。 */
     @GetMapping("/{id}/deposit/transactions")
     public ResponseEntity<List<DepositTransaction>> getDepositTransactions(@PathVariable Long id) {
-        return ResponseEntity.ok(depositService.listTransactionsByDemand(id));
+        List<DepositTransaction> txs = depositService.listTransactionsByDemand(id);
+        invoiceService.fillCurrentInvoice(txs);
+        return ResponseEntity.ok(txs);
     }
 }
