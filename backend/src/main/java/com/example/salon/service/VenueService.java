@@ -5,6 +5,7 @@ import com.example.salon.entity.Venue;
 import com.example.salon.repository.ActivityDemandRepository;
 import com.example.salon.repository.DepositTransactionRepository;
 import com.example.salon.repository.DutySigninRepository;
+import com.example.salon.repository.InvoiceRepository;
 import com.example.salon.repository.LockRecordRepository;
 import com.example.salon.repository.OpeningRecordRepository;
 import com.example.salon.repository.RecommendResultRepository;
@@ -40,6 +41,7 @@ public class VenueService {
     private final SiteVisitRepository siteVisitRepository;
     private final DutySigninRepository dutySigninRepository;
     private final OpeningRecordRepository openingRecordRepository;
+    private final InvoiceRepository invoiceRepository;
 
     /**
      * 更新场地。停用、日租金抬过锁定需求预算上限、拆掉必备设施时，相关锁定自行破裂；
@@ -125,5 +127,6 @@ public class VenueService {
         siteVisitRepository.updateVenueNameByVenueId(venueId, newName);
         dutySigninRepository.updateVenueNameByVenueId(venueId, newName);
         openingRecordRepository.updateVenueNameByVenueId(venueId, newName);
+        invoiceRepository.updateVenueNameByVenueId(venueId, newName);
     }
 }

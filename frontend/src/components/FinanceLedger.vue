@@ -5,11 +5,14 @@ import {
   financeApi, resolveError,
   type CustomerAccount, type DepositTransaction
 } from '../api'
+import SettlementInvoice from './SettlementInvoice.vue'
 
-const activePane = ref<'accounts' | 'ledger'>('accounts')
+const activePane = ref<'accounts' | 'ledger' | 'invoices'>('invoices')
 const accounts = ref<CustomerAccount[]>([])
 const transactions = ref<DepositTransaction[]>([])
 const loading = ref(false)
+
+const invoicePanelRef = ref<InstanceType<typeof SettlementInvoice> | null>(null)
 
 const rechargeDialogVisible = ref(false)
 const rechargeSubmitting = ref(false)
@@ -41,7 +44,8 @@ const loadTransactions = async () => {
 
 const handlePaneChange = (pane: string) => {
   if (pane === 'accounts') loadAccounts()
-  else loadTransactions()
+  else if (pane === 'ledger') loadTransactions()
+  else invoicePanelRef.value?.reload()
 }
 
 const openRecharge = (account: CustomerAccount) => {
@@ -100,6 +104,10 @@ onMounted(loadAccounts)
     />
 
     <el-tabs v-model="activePane" @tab-change="handlePaneChange">
+      <el-tab-pane label="结算发票" name="invoices">
+        <SettlementInvoice ref="invoicePanelRef" />
+      </el-tab-pane>
+
       <el-tab-pane label="客户押金账户" name="accounts">
         <el-table v-loading="loading" :data="accounts" border>
           <el-table-column type="index" label="#" width="60" />
@@ -174,6 +182,15 @@ onMounted(loadAccounts)
               </span>
             </template>
           </el-table-column>
+          <el-table-column label="对应有效发票" min-width="175">
+            <template #default="scope">
+              <template v-if="scope.row.currentInvoiceStatus === 'VALID'">
+                <el-tag type="success" size="small">{{ scope.row.currentInvoiceNo }}</el-tag>
+                <span class="money invoice">¥{{ scope.row.currentInvoiceAmount }}</span>
+              </template>
+              <span v-else class="no-invoice">未挂有效票</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="reason" label="档位/原因" min-width="280" show-overflow-tooltip />
         </el-table>
       </el-tab-pane>
@@ -233,6 +250,16 @@ onMounted(loadAccounts)
 .money.forfeit {
   color: #f56c6c;
   font-weight: 700;
+}
+
+.money.invoice {
+  color: #67c23a;
+  margin-left: 8px;
+}
+
+.no-invoice {
+  color: #c0c4cc;
+  font-size: 12px;
 }
 
 .totals {

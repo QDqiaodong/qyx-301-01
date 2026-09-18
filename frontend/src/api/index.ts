@@ -5,6 +5,37 @@ const api = axios.create({
   timeout: 10000
 })
 
+/**
+ * 当前操作角色（顶栏切换）：只有 FINANCE 财务能开票/作废。
+ * 角色随每个请求放进 X-Operator-Role 头，由后端强制校验——
+ * 销售点开票按钮也会被后端 403 挡下，并提示「只有财务能开」。
+ */
+const ROLE_STORAGE_KEY = 'salon.operatorRole'
+const OPERATOR_STORAGE_KEY = 'salon.operatorName'
+
+export const roleStore = {
+  getRole(): OperatorRole {
+    return localStorage.getItem(ROLE_STORAGE_KEY) === 'FINANCE' ? 'FINANCE' : 'SALES'
+  },
+  setRole(role: OperatorRole) {
+    localStorage.setItem(ROLE_STORAGE_KEY, role)
+  },
+  getOperatorName(role: OperatorRole): string {
+    return localStorage.getItem(OPERATOR_STORAGE_KEY + '.' + role)
+      || (role === 'FINANCE' ? '财务值班员' : '销售值班员')
+  },
+  setOperatorName(role: OperatorRole, name: string) {
+    localStorage.setItem(OPERATOR_STORAGE_KEY + '.' + role, name)
+  }
+}
+
+api.interceptors.request.use((config) => {
+  const role = roleStore.getRole()
+  config.headers.set('X-Operator-Role', role)
+  config.headers.set('X-Operator-Name', roleStore.getOperatorName(role))
+  return config
+})
+
 export interface Venue {
   id?: number
   name: string
@@ -51,6 +82,12 @@ export interface ActivityDemand {
   /** 是否已开场：0-未开场（已锁定），1-已开场（两岗签到齐全后开场） */
   opened?: number
   openedAt?: string | null
+  // ==================== 当前有效结算发票（后端挂载的只读快照，三处对同一张票） ====================
+  currentInvoiceId?: number | null
+  currentInvoiceNo?: string | null
+  currentInvoiceAmount?: number | null
+  /** VALID-有效票；无有效票（含旧票已作废）为 null */
+  currentInvoiceStatus?: 'VALID' | null
   createdAt?: string
   updatedAt?: string
 }
@@ -139,8 +176,46 @@ export interface DepositTransaction {
   reason?: string | null
   freezeTransactionId?: number | null
   activityDate?: string | null
+  /** 该流水关联的当前有效结算发票（冻结行与结算行挂同一张；旧票作废后不再挂） */
+  currentInvoiceId?: number | null
+  currentInvoiceNo?: string | null
+  currentInvoiceAmount?: number | null
+  currentInvoiceStatus?: 'VALID' | null
   createdAt?: string
 }
+
+/**
+ * 结算发票台账：
+ * VALID-有效票（可报销/对账的当前有效票）；RED_VOID-已作废红字票（旧票号留痕、不能再当有效票报）。
+ * basisType：FROZEN_OPENED-活动已开场按冻结额；FULLY_REFUNDED-押金全额实退完按实退额。
+ */
+export interface Invoice {
+  id?: number
+  invoiceNo: string
+  demandId: number
+  demandName?: string | null
+  accountId: number
+  customerName: string
+  customerPhone?: string | null
+  venueId?: number | null
+  venueName?: string | null
+  activityDate?: string | null
+  amount: number
+  basisType: 'FROZEN_OPENED' | 'FULLY_REFUNDED'
+  freezeTransactionId?: number | null
+  settlementTransactionId?: number | null
+  basisReason?: string | null
+  status: 'VALID' | 'RED_VOID'
+  activeFlag?: number | null
+  issuedAt?: string
+  issuedBy?: string | null
+  voidedAt?: string | null
+  voidedBy?: string | null
+  voidReason?: string | null
+}
+
+/** 当前登录角色：FINANCE-财务（能开票/作废）；SALES-销售（点开票必须被挡下） */
+export type OperatorRole = 'FINANCE' | 'SALES'
 
 /** 取消活动退押预估（后端按活动日距离分档计算） */
 export interface DepositPreview {
@@ -236,7 +311,26 @@ export const demandApi = {
   /** 客户取消活动：按距活动日远近分档退押，接口不传比例，销售不能手改 */
   cancelActivity: (id: number) => api.post<DepositTransaction>(`/demand/${id}/cancel`),
   getDepositTransactions: (id: number) =>
-    api.get<DepositTransaction[]>(`/demand/${id}/deposit/transactions`)
+    api.get<DepositTransaction[]>(`/demand/${id}/deposit/transactions`),
+  /** 该需求的发票记录（有效票 + 红字作废票） */
+  getInvoices: (id: number) => api.get<Invoice[]>(`/demand/${id}/invoices`)
+}
+
+/**
+ * 结算发票（财务专用）：后端按押金冻结结清状态核算票面金额，
+ * 没结清、已有有效票、非财务角色都会失败并返回中文原因。
+ */
+export const invoiceApi = {
+  /** 发票台账：有效票 + 红字作废票全部留痕 */
+  listAll: () => api.get<Invoice[]>('/finance/invoices'),
+  listByDemand: (demandId: number) =>
+    api.get<Invoice[]>(`/finance/invoices/demand/${demandId}`),
+  /** 按押金结清状态开票（金额/客户名全部由后端流水核算，不接收手填） */
+  issue: (demandId: number) =>
+    api.post<Invoice>(`/finance/invoices/demand/${demandId}/issue`, {}),
+  /** 旧票作废成红字（必填原因），作废后才可重开 */
+  voidInvoice: (invoiceId: number, voidReason: string) =>
+    api.post<Invoice>(`/finance/invoices/${invoiceId}/void`, { voidReason })
 }
 
 export const financeApi = {

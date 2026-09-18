@@ -3,6 +3,7 @@ package com.example.salon.controller;
 import com.example.salon.dto.RecommendResponse;
 import com.example.salon.entity.ActivityDemand;
 import com.example.salon.entity.DepositTransaction;
+import com.example.salon.entity.Invoice;
 import com.example.salon.entity.LockRecord;
 import com.example.salon.entity.RecommendResult;
 import com.example.salon.entity.SiteVisit;
@@ -11,6 +12,7 @@ import com.example.salon.repository.LockRecordRepository;
 import com.example.salon.repository.RecommendResultRepository;
 import com.example.salon.repository.SiteVisitRepository;
 import com.example.salon.service.DepositService;
+import com.example.salon.service.InvoiceService;
 import com.example.salon.service.LockService;
 import com.example.salon.service.RecommendService;
 import com.example.salon.service.SiteVisitService;
@@ -37,16 +39,23 @@ public class DemandController {
     private final SiteVisitService siteVisitService;
     private final LockService lockService;
     private final DepositService depositService;
+    private final InvoiceService invoiceService;
 
     @GetMapping
     public ResponseEntity<List<ActivityDemand>> getAllDemands() {
-        return ResponseEntity.ok(demandRepository.findAllByOrderByCreatedAtDesc());
+        List<ActivityDemand> demands = demandRepository.findAllByOrderByCreatedAtDesc();
+        // 需求列表带上当前有效票号/金额：与发票台账、押金流水看到同一张
+        invoiceService.attachActiveInvoices(demands);
+        return ResponseEntity.ok(demands);
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<ActivityDemand> getDemandById(@PathVariable Long id) {
         return demandRepository.findById(id)
-                .map(ResponseEntity::ok)
+                .map(demand -> {
+                    invoiceService.attachActiveInvoice(demand);
+                    return ResponseEntity.ok(demand);
+                })
                 .orElse(ResponseEntity.notFound().build());
     }
 
@@ -185,9 +194,17 @@ public class DemandController {
         return ResponseEntity.ok(lockService.cancelActivity(id));
     }
 
-    /** 该需求的押金流水（冻结、退回、没收），财务逐笔可核。 */
+    /** 该需求的押金流水（冻结、退回、没收），财务逐笔可核；关联的当前有效票号一并挂出。 */
     @GetMapping("/{id}/deposit/transactions")
     public ResponseEntity<List<DepositTransaction>> getDepositTransactions(@PathVariable Long id) {
-        return ResponseEntity.ok(depositService.listTransactionsByDemand(id));
+        List<DepositTransaction> txs = depositService.listTransactionsByDemand(id);
+        invoiceService.attachActiveInvoicesToTransactions(txs);
+        return ResponseEntity.ok(txs);
+    }
+
+    /** 该需求的发票记录（有效票 + 红字作废票） */
+    @GetMapping("/{id}/invoices")
+    public ResponseEntity<List<Invoice>> getDemandInvoices(@PathVariable Long id) {
+        return ResponseEntity.ok(invoiceService.listInvoicesByDemand(id));
     }
 }

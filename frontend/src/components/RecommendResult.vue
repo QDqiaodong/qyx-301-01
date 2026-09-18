@@ -301,6 +301,13 @@ onMounted(loadDemands)
                 <el-tag v-if="selectedDemand.opened === 1" type="danger" size="small" style="margin-left: 6px">
                   当天两岗已签到并开场
                 </el-tag>
+                <el-tag
+                  v-if="selectedDemand.currentInvoiceStatus === 'VALID'"
+                  type="success"
+                  size="small"
+                  effect="dark"
+                  style="margin-left: 6px"
+                >已开有效发票 {{ selectedDemand.currentInvoiceNo }} ¥{{ selectedDemand.currentInvoiceAmount }}</el-tag>
               </span>
               <span class="locked-actions">
                 <el-button type="danger" size="small" plain @click="cancelActivity">

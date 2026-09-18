@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import {
   demandApi,
-  type ActivityDemand, type LockRecord, type SiteVisit, type DepositTransaction
+  type ActivityDemand, type LockRecord, type SiteVisit, type DepositTransaction, type Invoice
 } from '../api'
 
 const demands = ref<ActivityDemand[]>([])
@@ -11,6 +11,7 @@ const recommendCache = ref<Map<number, any[]>>(new Map())
 const lockCache = ref<Map<number, LockRecord[]>>(new Map())
 const visitCache = ref<Map<number, SiteVisit | null>>(new Map())
 const depositCache = ref<Map<number, DepositTransaction[]>>(new Map())
+const invoiceCache = ref<Map<number, Invoice[]>>(new Map())
 
 const loadDemands = async () => {
   const res = await demandApi.getAll()
@@ -49,6 +50,15 @@ const toggleExpand = async (demandId: number) => {
       depositCache.value.set(demandId, res.data)
     } catch {
       depositCache.value.set(demandId, [])
+    }
+  }
+
+  if (!invoiceCache.value.has(demandId)) {
+    try {
+      const res = await demandApi.getInvoices(demandId)
+      invoiceCache.value.set(demandId, res.data)
+    } catch {
+      invoiceCache.value.set(demandId, [])
     }
   }
 
@@ -99,6 +109,14 @@ const depositTypeMeta = (tx: DepositTransaction) => {
   }
 }
 
+const activeInvoice = (demandId: number) =>
+  (invoiceCache.value.get(demandId) || []).find(i => i.status === 'VALID') || null
+
+const invoiceBasisText = (invoice: Invoice) =>
+  invoice.basisType === 'FROZEN_OPENED'
+    ? '活动已开场，按冻结额结清'
+    : '押金全额实退完，按实退额结清'
+
 const slotText = (slot: string) => slot === 'MORNING' ? '上午' : '下午'
 
 onMounted(loadDemands)
@@ -127,6 +145,12 @@ onMounted(loadDemands)
               <el-tag v-if="demand.locked === 1 && demand.opened === 1" type="danger" size="small">
                 当天已开场
               </el-tag>
+              <el-tag
+                v-if="demand.currentInvoiceStatus === 'VALID'"
+                type="success"
+                size="small"
+                effect="dark"
+              >有效发票 {{ demand.currentInvoiceNo }} ¥{{ demand.currentInvoiceAmount }}</el-tag>
             </div>
           </div>
           <div class="header-right">
@@ -266,10 +290,76 @@ onMounted(loadDemands)
               <el-table-column label="没收" width="90">
                 <template #default="scope">¥{{ scope.row.forfeitAmount }}</template>
               </el-table-column>
+              <el-table-column label="对应有效发票" min-width="165">
+                <template #default="scope">
+                  <el-tag v-if="scope.row.currentInvoiceStatus === 'VALID'" type="success" size="small">
+                    {{ scope.row.currentInvoiceNo }} ¥{{ scope.row.currentInvoiceAmount }}
+                  </el-tag>
+                  <span v-else style="color: #c0c4cc; font-size: 12px">未挂有效票</span>
+                </template>
+              </el-table-column>
               <el-table-column prop="reason" label="说明" min-width="240" show-overflow-tooltip />
               <el-table-column prop="createdAt" label="时间" width="170" />
             </el-table>
             <el-alert v-else type="info" :closable="false" title="该需求尚无押金流水（未冻结过押金）" />
+          </div>
+
+          <div class="detail-section">
+            <h5>结算发票</h5>
+            <el-alert
+              v-if="activeInvoice(demand.id!)"
+              type="success"
+              :closable="false"
+              show-icon
+              class="detail-alert"
+              :title="`当前有效发票：${activeInvoice(demand.id!)?.invoiceNo}，票面金额 ¥${activeInvoice(demand.id!)?.amount}，客户（押金账户户主）：${activeInvoice(demand.id!)?.customerName}（${invoiceBasisText(activeInvoice(demand.id!)!)}）`"
+              description="该票号与票面金额与发票台账、押金流水上挂的是同一张；旧票已作废成红字后，这里只显示新开的有效票。"
+            />
+            <el-alert
+              v-else
+              type="info"
+              :closable="false"
+              show-icon
+              title="该需求当前没有有效发票：还在冻结中没开场也没退完的不能开；若之前开过票，则旧票已作废成红字、暂无新票。"
+            />
+            <el-table
+              v-if="(invoiceCache.get(demand.id!) || []).length > 0"
+              :data="invoiceCache.get(demand.id!)"
+              border
+              size="small"
+              style="margin-top: 10px"
+            >
+              <el-table-column prop="invoiceNo" label="发票号" min-width="160">
+                <template #default="scope">
+                  <span :style="{ color: scope.row.status === 'RED_VOID' ? '#f56c6c' : '', fontWeight: scope.row.status === 'RED_VOID' ? 700 : 400 }">
+                    {{ scope.row.invoiceNo }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="90">
+                <template #default="scope">
+                  <el-tag :type="scope.row.status === 'VALID' ? 'success' : 'danger'" size="small">
+                    {{ scope.row.status === 'VALID' ? '有效票' : '红字作废' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="customerName" label="客户" min-width="100" />
+              <el-table-column label="票面金额" width="100">
+                <template #default="scope">¥{{ scope.row.amount }}</template>
+              </el-table-column>
+              <el-table-column label="开票依据" min-width="170">
+                <template #default="scope">{{ invoiceBasisText(scope.row) }}</template>
+              </el-table-column>
+              <el-table-column prop="issuedAt" label="开票时间" width="170" />
+              <el-table-column label="作废原因" min-width="200">
+                <template #default="scope">
+                  <span v-if="scope.row.status === 'RED_VOID'" style="color: #f56c6c">
+                    {{ scope.row.voidReason }}（{{ scope.row.voidedAt }}）
+                  </span>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+            </el-table>
           </div>
 
           <div class="detail-section">

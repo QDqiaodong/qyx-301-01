@@ -107,6 +107,23 @@ public class ActivityDemand {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    // ==================== 当前有效结算发票（只读快照，不落库，由 InvoiceService 挂载） ====================
+    // 需求详情、发票台账、押金流水三处必须看到同一张有效票号与同一金额；
+    // 旧票作废成红字后这几个字段为空，挂的是新开的票。
+
+    @Transient
+    private Long currentInvoiceId;
+
+    @Transient
+    private String currentInvoiceNo;
+
+    @Transient
+    private BigDecimal currentInvoiceAmount;
+
+    /** VALID-有效票；无有效票（含全部已作废）为 null */
+    @Transient
+    private String currentInvoiceStatus;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

@@ -5,6 +5,7 @@ import com.example.salon.entity.Venue;
 import com.example.salon.repository.ActivityDemandRepository;
 import com.example.salon.repository.DepositTransactionRepository;
 import com.example.salon.repository.DutySigninRepository;
+import com.example.salon.repository.InvoiceRepository;
 import com.example.salon.repository.LockRecordRepository;
 import com.example.salon.repository.OpeningRecordRepository;
 import com.example.salon.repository.RecommendResultRepository;
@@ -42,6 +43,7 @@ class VenueServiceTest {
     @Mock private SiteVisitRepository siteVisitRepository;
     @Mock private DutySigninRepository dutySigninRepository;
     @Mock private OpeningRecordRepository openingRecordRepository;
+    @Mock private InvoiceRepository invoiceRepository;
     @InjectMocks private VenueService venueService;
 
     private Venue existing;

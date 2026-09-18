@@ -3,6 +3,7 @@ package com.example.salon.controller;
 import com.example.salon.entity.CustomerAccount;
 import com.example.salon.entity.DepositTransaction;
 import com.example.salon.service.DepositService;
+import com.example.salon.service.InvoiceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +23,7 @@ import java.util.Map;
 public class DepositController {
 
     private final DepositService depositService;
+    private final InvoiceService invoiceService;
 
     /** 全部客户押金账户（可用余额 / 已冻结余额） */
     @GetMapping("/accounts")
@@ -29,10 +31,12 @@ public class DepositController {
         return ResponseEntity.ok(depositService.listAccounts());
     }
 
-    /** 押金流水台账：每一笔冻结、退回、没收、充值，财务逐笔可见 */
+    /** 押金流水台账：每一笔冻结、退回、没收、充值，财务逐笔可见；关联的当前有效发票票号/金额一并挂出 */
     @GetMapping("/deposit-transactions")
     public ResponseEntity<List<DepositTransaction>> listTransactions() {
-        return ResponseEntity.ok(depositService.listAllTransactions());
+        List<DepositTransaction> txs = depositService.listAllTransactions();
+        invoiceService.attachActiveInvoicesToTransactions(txs);
+        return ResponseEntity.ok(txs);
     }
 
     /** 押金充值入账（财务操作） */

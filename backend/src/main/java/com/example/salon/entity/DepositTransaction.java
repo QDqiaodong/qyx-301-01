@@ -84,6 +84,21 @@ public class DepositTransaction {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
+    // ==================== 关联的当前有效结算发票（只读快照，不落库，由 InvoiceService 挂载） ====================
+    // 押金流水与发票台账、需求详情看到的必须是同一张有效票号、同一金额；
+    // 旧票作废成红字后流水上不再挂旧票号，改挂新票。
+    @Transient
+    private Long currentInvoiceId;
+
+    @Transient
+    private String currentInvoiceNo;
+
+    @Transient
+    private BigDecimal currentInvoiceAmount;
+
+    @Transient
+    private String currentInvoiceStatus;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
